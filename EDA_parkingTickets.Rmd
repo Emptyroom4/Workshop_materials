@@ -689,7 +689,8 @@ granted |>
 ```
 
 
-This plot shows how many appeals each violation type received (x-axis) and the proportion that were granted (y-axis). High-volume appeals are dominated by Overtime Parking and Permit Zone w/o Permit, while some small categories like Warning and No Parking 3–5am Downtown show very high grant rates due to their small appeal counts. The red horizontal line indicates a 50% grant rate.
+This plot shows how many appeals each violation type received (x-axis) and the proportion that were granted (y-axis). High-volume appeals are dominated by Overtime Parking and Permit Zone w/o Permit, while some small categories like Warning and No Parking 3–5am Downtown show very high grant rates due to their small appeal counts. 
+The red horizontal line indicates a 50% grant rate.
  
  
 

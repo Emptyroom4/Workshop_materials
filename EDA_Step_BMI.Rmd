@@ -18,14 +18,12 @@ library(tidyverse)
 ```
 
 
-This dataset includes information on average steps, Body Mass Inedex, and gender for 1,786 individuals.
+This dataset includes information on daily step counts, Body Mass Inedex(BMI), and gender for 1,786 individuals.
 
 # Reading Data
 ```{r}
  
-data = read.csv("steps.csv")[,-1] # [,-1] removes row numbers
-
-
+data = read.csv("steps.csv")[,-1] # [,-1] removes row numbers 
 ```
 
 # Structure of the Data
@@ -40,7 +38,7 @@ summary(data)
 
 ```
 
-We notice that the class of ID is incorrect. Character would be the appropriate type. 
+We notice that the data types of ID and gender are incorrect. 
 ```{r}
 data$ID <- as.character(data$ID)
 data$gender <- as.factor(data$gender)
@@ -89,7 +87,7 @@ cor(data$steps, data$bmi)
 
 ```
 
-We computed Pearson’s correlation between steps and BMI. The correlation is negative, which looks natural, but the effect size is not large. which looks natural, but the size is not big
+We computed Pearson’s correlation between steps and BMI. The correlation is negative, which looks natural, but the effect size is not large.  
 
 # Gender Differences in the Steps–BMI Relationship
 
@@ -105,10 +103,10 @@ cor(female$steps, female$bmi)  # -0.2303534
 
 ```
 
-Both correlations are negative and not very different.
+Both correlations are negative and fairly similar. The association between BMI and steps is slightly stronger in the male group than in the female group.
 
 
-Let’s explore this more: Do steps predict BMI?
+Next, we examine how BMI varies with steps using a linear regression model, which quantifies how BMI changes on average as step count changes.
 
 # Regression (without hypothesis)
 ```{r}
@@ -117,8 +115,8 @@ bmi <- lm( bmi ~ steps + gender, data)
 summary(bmi)
 
 ```
-Steps significantly predict BMI (p < .001).
-One additional step is associated with a decrease of about 0.000392 BMI units.
+
+We see that each additional step is associated with an average decrease of about 0.000392 BMI units.
 
 1 step --> 0.000392 BMI. To change BMI by 1 full unit, you would need:
 
@@ -138,14 +136,19 @@ ggplot(data, aes(steps, bmi, color = gender)) +
  
  
 Was this surprising?
-Our model gave us a significant result…  yet we missed the gorilla hiding in the data!
-This is why visualization must come first! 
- 
- 
-The Steps and BMI dataset comes from the 2020 article “A Hypothesis Is a Liability”  
- in which the authors created an artificial dataset to demonstrate how prior beliefs shape our attention. One group was given three specific hypotheses(e.g, There is a difference in the mean number of steps between women and men.) to test, while the other group was simply asked to explore the data freely. The hypothesis-free group was 2.6 times more likely to notice the hidden gorilla in the dataset than the group that was given hypotheses.
- 
-Another example that shows the importance of visualization is Anscombe’s quartet.
+Our model gave a statistically significant result — yet we completely missed the gorilla hiding in the data! 
+This shows why visualization should come first.
+
+The Steps and BMI dataset comes from the 2020 article A Hypothesis Is a Liability, in which 
+the authors created an artificial dataset to demonstrate how prior beliefs shape our attention.
+
+In the experiment, one group was given three specific hypotheses to test (e.g., 
+“There is a difference in the mean number of steps between women and men.”), 
+while another group was asked to explore the data freely. 
+The hypothesis-free group was 2.6 times more likely to notice the hidden gorilla in the dataset than the group that was given hypotheses.
+
+Another classic example highlighting the importance of visualization is Anscombe’s quartet.
+
 
 # Anscombe’s Quartet 
 
