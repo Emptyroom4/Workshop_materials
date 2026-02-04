@@ -49,8 +49,9 @@ library(ggrepel)      # for the text_repel
 ## Read the Data File
 ```{r message=FALSE, warning=FALSE }
  
- 
-ticket_original <- read.csv("Parking_Tickets.csv", na.strings = c("n/a", ""))
+ticket_original <-  read.csv("http://static.lib.virginia.edu/statlab/materials/data/Parking_Tickets.csv",
+                             na.strings = c("n/a", ""))
+
 #converts "n/a" and empty strings into proper NA values when the dataset is read.
 
 ticket <- ticket_original|>
