@@ -1,0 +1,1010 @@
+---
+title: "Exploratory Data Analysis of Parking Tickets in Charlottesville"
+author: "Hyeseon Seo, StatLab, University of Virginia Library"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# 1. Introduction 
+
+The Parking Ticket dataset contains detailed records of parking tickets issued in the City of Charlottesville. 
+It was found in the Charlottesville Open Data Portal, which is open to anyone.
+
+Here is the link:  
+ https://opendata.charlottesville.org/datasets/0ae373f4c2884abbb296500125bb9d8a_7/explore
+
+Each entry represents a single parking citation on a given block and includes information about when, where, and for what reason the ticket was issued. 
+
+Key variables in the dataset :
+
+* Ticket Number – A unique identifier for each record.
+* Violation Description - The specific parking rule that was violated (e.g., Overtime Parking, No Parking Anytime, Permit Zone violations..etc).
+* Date and Time – When the ticket was issued (year, month, day, and time of day).
+* StreetName - Where the violation occurred.
+* License State – The vehicle’s license plate state, useful for identifying where drivers come from.
+* Appeal / Waiver Status – The status of the ticket is under appeal (e.g., Granted, Denied, Pending). 
+
+Because we have time, location, category, and outcome variables, this dataset is well suited for EDA! We will explore the following.
+
+- How ticketing patterns vary over time
+- Whether certain time of a day, days or seasons show more parking tickets issued
+- Which violations are most common
+- Which violation types are frequently appealed and granted
+- Which street issues parking tickets frequently
+
+
+# 2. Setup 
+## Load Libraries
+```{r message=FALSE, warning=FALSE}
+ 
+library(tidyverse)    # includes ggplot2, stringr, lubridate, dplyr, and forcats for fct_reorder and other tools
+library(table1)       # nicer summary tables 
+library(ggrepel)      # for the text_repel
+ 
+```
+
+
+## Read the Data File
+```{r message=FALSE, warning=FALSE }
+ 
+ 
+ticket_original <- read.csv("Parking_Tickets.csv", na.strings = c("n/a", ""))
+#converts "n/a" and empty strings into proper NA values when the dataset is read.
+
+ticket <- ticket_original|>
+  select("RecordID", "DateIssued","StreetName","TimeIssued","LicenseState",
+         "AppealDate","AppealGrantedDate","ViolationDescription","AppealStatus","WaiverStatus") #select interest variables
+
+names(ticket) # show column names
+
+```
+
+Saving the original data is a good idea, since you may want to compare it with the mutated (i.e., modified) data. 
+
+# 3. Initial Data Inspection 
+## View the first few rows
+
+Check out the data
+```{r message=FALSE, warning=FALSE}
+
+
+# Dimension of the data: 506,311 observations and 16 variables.
+dim(ticket)
+
+# Check the structure of the dataset by viewing the first few rows
+head(ticket)
+
+```
+
+ 
+## Check Structure of the Data
+
+Are the variables encoded correctly? We can check the data and their class are correspondent with each other using the _str()_ function.
+
+```{r message=FALSE, warning=FALSE}
+
+str(ticket)
+
+```
+
+
+We observe that several variables have incorrect classes. 
+
+- RecordID should not be stored as integers because they do not represent numeric quantities. They should be converted to character (or factor) classes.
+- All date and time variables (DateIssued, TimeIssued, AppealDate, AppealGrantedDate) should be stored as Date or Date-Time (POSIXct), not as character strings.
+
+## Correct the classes
+
+```{r message=FALSE, warning=FALSE}
+
+# you can directly handle for each column
+ticket$RecordID <- as.character(ticket$RecordID)
+ 
+class(ticket$RecordID)
+
+
+# unique(ticket$DateIssued)
+# unique(ticket$AppealDate)
+# unique(ticket$AppealGrantedDate)
+# unique(ticket$AppealStatus)
+# unique(ticket$WaiverStatus)
+
+# Or use mutate() function
+ticket <- ticket |>
+  mutate( 
+    DateIssued = as.Date(DateIssued), 
+    AppealDate = mdy(AppealDate),
+    AppealGrantedDate = mdy(AppealGrantedDate), 
+  )
+ 
+
+# Recheck the data whether they were converted properly
+str(ticket)
+ 
+
+```
+
+Let’s examine ‘TimeIssued’entries. These values also appeared to be incorrectly encoded.
+
+```{r message=FALSE, warning=FALSE}
+
+ticket$TimeIssued
+
+```
+
+The correct time format should be HH:MM, which requires four digits and a colon. We can separate the cases into values with and without a colon.
+
+1) Without a colon: Numeric values should be converted to a four-digit format by padding with leading zeros and then inserting a colon between the hour and minute digits
+(e.g., 2213 -> 22:13, 501 -> 0501 -> 05:01, 43 -> 0043 -> 00:43).
+
+2) With a colon: Times with a single-digit hour should be padded with a leading zero
+(e.g., 9:13 -> 09:13).
+
+3) Invalid times: Invalid times should be set to NA.
+(e.g., 81:01, which is invalid).
+
+
+## Cleaning the TimeIssued
+Now let's standardizes messy time values into a valid 24-hour HH:MM format. 
+It first removes leading and trailing spaces, pads numeric values to four digits, inserts a colon, fixes single-digit hours, removes invalid times, and finally converts the result into a time object for analysis.
+
+```{r message=FALSE, warning=FALSE}
+
+ticket <- ticket |>
+  mutate(
+    TimeIssued_chr = str_trim(TimeIssued), # remove empty space at the beginning and the end
+
+    # Handle numeric-only formats: pad to 4 digits
+    TimeIssued_padded = case_when(
+      str_detect(TimeIssued_chr, "^\\d{1,3}$") ~ #Checks whether each string matches a pattern; consist digit only with lehgth with 1-3,
+        str_pad(TimeIssued_chr, 4, pad = "0"), #makes the value 4 characters long by adding leading zeros.
+      TRUE ~ TimeIssued_chr
+    ),
+
+    # Convert HHMM -> HH:MM
+    TimeIssued_hhmm = case_when(
+      str_detect(TimeIssued_padded, "^\\d{4}$") ~
+        paste0(substr(TimeIssued_padded, 1, 2), ":", #extract the first two digit -> the hours
+               substr(TimeIssued_padded, 3, 4)), #Extracts the last two digits -> the minutes.
+      TRUE ~ TimeIssued_padded
+    ),
+
+    # Convert H:MM -> HH:MM
+    TimeIssued_hhmm = case_when(
+      str_detect(TimeIssued_hhmm, "^\\d{1}:\\d{2}$") ~
+        paste0("0", TimeIssued_hhmm),
+      TRUE ~ TimeIssued_hhmm
+    ),
+
+    # Final validation: keep only 00:00–23:59
+    # "8101" -> "8101" -> 81:01 (-> invalid -> NA)
+    TimeIssued_clean = ifelse(
+      str_detect(TimeIssued_hhmm, "^(?:[01]\\d|2[0-3]):[0-5]\\d$"), 
+      TimeIssued_hhmm, #If TimeIssued_hhmm is a valid 24-hour time in HH:MM format (00:00–23:59), keep it; otherwise, set it to NA.
+      NA_character_
+    )
+  ) |> select(-"TimeIssued_padded", -"TimeIssued_hhmm", -"TimeIssued_chr", -"TimeIssued")
+
+# converting to time format
+ticket$TimeIssued_clean <- as.POSIXct(ticket$TimeIssued_clean, format = "%H:%M")
+
+ 
+# Check the results
+str(ticket)
+
+sample( unique(ticket$TimeIssued_clean), 50)  
+
+
+```
+Because we only had time information, a common date(current day) is assigned for comparison; the specific date does not matter since it is not used in the analysis. The structure looks correct, and the dataset is now ready for analysis.
+
+
+# 4. Summary Overview
+
+A broad summary of what's in the dataset before exploring details.
+```{r message=FALSE, warning=FALSE}
+
+summary(ticket)
+
+```
+
+We see that this data was collected from 1999-01-05 to 5201-06-30, which implies that the data contain invalid values. We will examine DateIssued variable.
+
+For numeric variables, the _summary()_ function is helpful, but for character variables it isn’t very informative. In those cases, the _table()_ function provides more useful information.
+
+# 5. Investigating Date Issues and Preparing Clean Data 
+
+Let’s investigate the invalid dates by sorting the ‘DateIssued’ column.
+```{r message=FALSE, warning=FALSE}
+
+ticket |> arrange(desc(DateIssued)) |> 
+  head(20)
+
+
+```
+We see that some of the Years in the DateIssued variable are incorrect.
+
+Because the incorrect entries account for only 16 of 506,311 records, we removed them as they do not meaningfully affect the analysis. We also excluded 2025 data in DateIssued, since it includes observations only through February and is not representative of a full year.
+
+
+```{r message=FALSE, warning=FALSE}
+
+ 
+ # Select data whith DateIssued up to the year 2024 
+
+ticket <- ticket |>  
+  filter( DateIssued < as.Date("2025-01-01"))  
+ 
+
+summary(ticket) 
+
+# unique(year(ticket$DateIssued))
+# unique(year(ticket$AppealDate))
+# unique(year(ticket$AppealGrantedDate))
+
+```
+
+DateIssued now ranges from 1999 to 2024. AppealDate and AppealGrantedDate are follow-up process dates for those same tickets rather than new cases, so we retained them even when they occur in 2025.
+
+
+# 6. Exploratory Data Analysis
+## 6.1 Univariate Analysis
+We will start by examining one variable at a time. The most basic approach is to count the issued parking tickets by time, violation type, or appeal status.
+
+### 6.1.1.Time
+
+### 1) Parking Ticket by Year (1999 to 2025)
+
+#### - Bar Chart
+```{r message=FALSE, warning=FALSE}
+
+# Extract the year component from DateIssued
+ticket$Year <- year(ticket$DateIssued)
+
+ggplot(ticket, aes(x = factor(Year))) +
+  geom_bar( ) + 
+  labs(title = "Number of Tickets by Year",
+       x = "Year",
+       y = "Count") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1)) # rotate x-axis labels for readability
+
+```
+
+2000 and 2001 show the highest number of parking tickets, and since then we observe a decreasing trend.
+In particular, during the COVID period (2020), the number of tickets decreased significantly.
+
+#### - Line Chart with Points
+```{r message=FALSE, warning=FALSE}
+
+ggplot(ticket, aes(x = Year)) + #aes(aesthetic mappings)
+  geom_point(stat = "count" ) + 
+  geom_line(stat = "count") +
+  labs(title = "Number of Tickets by Year",
+       x = "Year",
+       y = "Count")  
+
+
+
+```
+
+
+
+### 2) Seasonal Patterns by Month
+Is there seasonal effect? Parking ticket by month (1999 to 2025)
+
+#### - Bar Chart
+
+```{r message=FALSE, warning=FALSE}
+
+# Extract the month from DateIssued
+ticket$Month = month(ticket$DateIssued, label = TRUE) 
+
+ 
+# bar graph
+ggplot(ticket, aes(x = Month)) +
+  geom_bar( ) +
+  labs(title = "Number of Tickets by Month",
+       x = "Month",
+       y = "Count") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+  
+```
+
+
+There does not appear to be much of a seasonal effect, but during the winter break (December and January) and the summer break (July - August), the number of parking tickets issued tends to be lower. 
+
+### 3) Weekday
+```{r message=FALSE, warning=FALSE}
+ 
+# Extract week day
+# label = TRUE returns weekday names (Mon–Sun) instead of numbers (1–7)
+ticket$Weekday = wday(ticket$DateIssued, label =TRUE)
+
+ 
+ggplot(ticket, aes(x = factor(Weekday) )) +
+  geom_bar(  )+ 
+  labs(y = "Count", x = "Weekday",
+       title = "Ticket Counts by Weekday")
+
+
+```
+
+Tuesday through Thursday have the highest number of tickets issued. And watch out — Saturdays are not zero!
+
+
+### 4) Daily Patterns (Time of Day) 
+
+```{r message=FALSE, warning=FALSE}
+
+ggplot(ticket, aes(x = TimeIssued_clean)) +
+  geom_histogram( color = "white", binwidth = 60*30 ) + # distances on datetime axes in seconds;30-minute bins 
+  labs(title = "Number of Tickets by Time of Day",
+       x = "Time",
+       y = "Count") +
+  scale_x_datetime(date_labels = "%H:%M", date_breaks = "2 hours") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+```
+ 
+Parking tickets are most frequently issued at 11:00AM! 
+
+ 
+### 6.1.2.Violations
+
+#### 1) Violation Types: 
+What types of violations were committed?
+
+#### -  Cleaning the Violation
+
+```{r message=FALSE, warning=FALSE}
+
+unique(ticket$ViolationDescription) # 33 types of violations
+
+```
+
+Some violations(e.g,"Overtime Parking","Obstructing Traffic ", "Blocking Drive ",...) appear multiple times with small formatting differences. Let’s combine these into unified categories.
+
+```{r}
+
+ticket <- ticket |>
+  mutate(
+    Violation_clean = ViolationDescription |> 
+      str_trim() |>  # remove leading/trailing spaces 
+      str_squish()  # remove double spaces
+    )
+
+unique(ticket$Violation_clean) 
+
+
+```
+We’ve reduced the number. However, there is still room to combine a duplicate category: 
+‘Parking on Sidewalk’ can be merged with ‘Parking on Sidewalk/Blocking Sidewalk.
+
+```{r}
+
+ticket <- ticket |>
+  mutate(
+    Violation = case_when(
+      str_detect(Violation_clean, "Parking on Sidewalk") ~ 
+        "Parking on Sidewalk/Blocking Sidewalk",
+      TRUE ~ Violation_clean
+    )
+  )
+
+unique(ticket$Violation) 
+
+```
+
+Now looks good! 
+
+```{r}
+# Arrange violations in descending order (highest first)
+
+violations = ticket |> 
+  group_by(Violation) |>
+  summarize(n = n())  |>
+  arrange(desc(n)) 
+
+violations
+  
+```
+
+
+Overtime Parking was absolutely the most frequently issued violation, followed by Permit Zone w/o Permit, Violation of Meter Ordinance and No Parking Any Time.   
+
+#### - Dot plot
+```{r message=FALSE, warning=FALSE}
+
+ggplot(violations, aes(x = 
+Violation, y = n)) +
+  geom_point(alpha = 0.8, size = 2) +
+  labs(title = "Number of Violation Descriptions",
+       x = "Violation Description",
+       y= "Count") + 
+  theme(axis.text.x = element_text(angle = 60, hjust = 1)) # rotate x-axis labels for readability
+
+
+```
+
+ 
+#### - Horizontal Bar Chart for Violation Descriptions
+
+When the x-axis becomes crowded with labels, flipping the coordinates to create a horizontal bar chart improves clarity.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(violations, aes(x = n, y = reorder(Violation, n))) + # now y-axis are the description
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Count of Violation Descriptions",
+    x = "Count",
+    y = "Violation Description"
+  ) +
+  theme_minimal()
+```
+
+
+### 6.1.3 Tables for AppealStatus, WaiverStatus and LicenseState
+
+Tables are simple but very useful for summarizing categorical variables, allowing us to quickly see how often each category appears. 
+
+
+#### 1) Appeal Status 
+```{r message=FALSE, warning=FALSE}
+
+#ticket$AppealStatus
+unique(ticket$AppealStatus)
+
+# A basic table
+table(ticket$AppealStatus)
+
+```
+
+Base R’s _table()_ gives useful counts, but _table1()_ (package table1) produces nicer‐formatted tables with counts and percentages.
+
+```{r message=FALSE, warning=FALSE}
+
+# A better table with the table1 package
+ 
+table1(~ AppealStatus, data = ticket )
+table1(~ AppealStatus, data = subset(ticket, !is.na(AppealStatus))) # Subset to appealed cases only
+
+
+
+```
+We observe that most people did not appeal their tickets—only about 6% (31275/505389) did. Among those who appealed, slightly more than half were granted, suggesting that appealing may be worthwhile, when the ticket receiver believes the ticket was wrongly given!
+
+
+#### 2) Waiver Status
+```{r message=FALSE, warning=FALSE}
+
+table1(~ WaiverStatus, data = ticket)
+table1(~ WaiverStatus, data = subset(ticket, !is.na(WaiverStatus))) # Only cases where a waiver was applied
+```
+ 
+About 98% of waiver applications were granted, but waivers were rarely requested
+
+#### 3) License States
+
+summarize the number of parking ticket by license plate state
+```{r message=FALSE, warning=FALSE}
+
+ table1(~ LicenseState, data = ticket)
+
+```
+
+Some entries such as N, O, G, ... XX, or ZZ are not meaningful state codes, but because they appear only a few times, we can safely ignore them especially when we are interested in which states' license plate account for the most tickets in Charlottesville.  
+
+While table1() is useful for quickly showing counts and percentages, it doesn’t support sorting. To order states by frequency, we need to group by LicenseState and then arrange the results by the highest counts.
+
+#####  Which License States Are Most Often Issued Parking Tickets?
+```{r message=FALSE, warning=FALSE}
+
+total =  nrow(ticket)
+license = ticket |>
+  group_by(LicenseState) |>
+  summarize(n = n(), ratio = round( n/total, 2))|>
+  arrange(desc(n))
+
+ license
+
+```
+ 
+As expected, Virginia had the highest number of tickets. 
+Outside Virginia, the most frequently ticketed state license plates were from Maryland, North Carolina, Florida, Pennsylvania, New York, and New Jersey.
+ 
+
+## 6.2 Bivariate Analysis
+
+We can examine relationships between pairs of variables. For example, we can explore how violation types vary across time (e.g., by year, month, or time of day), and identify which violations are more likely to be appealed or granted.
+
+##### 1) Top12 Violation Types by Year
+
+Since there are too many violation types, it is difficult to examine their relationship with time. Therefore, we will focus on the top violations. 
+
+There was no particular reason to select the 12 most frequently ticketed violations, but while exploring the data I noticed that ‘Void’ shows an interesting trend over the years. Since it happens to be the 12th most frequent violation type, I decided to include the top 12 here.
+
+
+```{r message=FALSE, warning=FALSE}
+
+# Extract only the top 13 violation descriptions
+
+
+top12 = violations |> head(12)
+top12
+ 
+# select only those violation cases from the original dataset
+top12_df = ticket |> filter( Violation %in% top12$Violation ) # 
+ 
+
+```
+
+###### - Table 
+```{r message=FALSE, warning=FALSE}
+
+df = as.data.frame.matrix(table(top12_df$Violation, top12_df$Year)) |> 
+  rownames_to_column(var = "Violation")
+
+df[,1:6] # for better readability, show a part of the data; this is a wide format
+
+```
+
+
+Data in wide format should be reshaped to long format for plotting. If years are split across columns, they can’t be mapped to a single axis. Let's convert to long so Year becomes its own column, then we can put it on an axis.
+
+```{r message=FALSE, warning=FALSE}
+
+# Reshape the Data: Wide to Long Format
+df_long = df |> pivot_longer( cols =-Violation, names_to = "Year", values_to = "count")
+
+# Long format data: prepared to plot
+head(df_long)
+ 
+```
+
+
+
+###### - Dot Plots with Facet
+
+```{r message=FALSE, warning=FALSE}
+ 
+df_long$Year <- as.numeric(df_long$Year) # convert year to numeric 
+
+
+ggplot(df_long, aes(x=Year, y=count)) + 
+  geom_point() +
+  scale_x_continuous(breaks = seq(1999, 2025, by = 3))+
+  facet_wrap(~ Violation, scales = "free_y", ncol = 3) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+ 
+```
+
+
+Facets reveal strong policy and enforcement shifts over the years!
+
+- Curb Painted Yellow violations decreased slowly over time.
+- Loading Zone /Warning show a clear decrease over time
+- Void tickets increase noticeably after 2015.A void ticket usually means the officer canceled the ticket (wrong car, corrected ticket, system error, etc). This jump might imply a new digital ticket writing system that made voiding easier or updated officer training.
+- No city license (The vehicle did not have a required city vehicle license or city sticker) stop appearing after 2006. This matches the real policy change timeline: Charlottesville eliminated the physical city decal in 2018. But enforcement had already decreased years before, because: They switched to relying on personal property tax records instead. The decal requirement became “honor based”. Police stopped writing tickets for missing decals
+
+ 
+
+##### 2) Violations With the Highest Number of Appeals : 
+Which violations are frequently appealed and granted?
+
+We first count each AppealStatus within each violation type by grouping on Violation and AppealStatus. Then we collapse back to the violation level to get the total number of appeals (summing Denied, Granted, and Pending) and compute the grant rate = Granted / (Denied + Granted + Pending), which is our main interest.
+
+Here 'n' represents the number of records for each AppealStatus within a given Violation. 'appealed_total' is the sum of all appeal statuses (Denied, Granted, Pending) and 'grant_rate' is the proportion granted for that violation.
+
+```{r message=FALSE, warning=FALSE}
+
+appeal = ticket |> filter(!is.na(AppealStatus)) |>  
+  group_by(Violation, AppealStatus) |>
+  summarize( n =n(), .groups = "drop_last") |> #'drop_last' removes the last grouping variable (AppealStatus), leaving the data still grouped by Violation so as to easily  add all appeal status within each violation type.
+  mutate(appeal_total = sum(n), grant_ratio = n/appeal_total)
+
+appeal
+head(appeal)
+
+# since the most interest is granted percentage, let's select the granted.
+granted = appeal |> filter(AppealStatus =="granted")
+
+arrange(granted, desc(appeal_total))
+
+```
+
+Naturally, the most frequently ticketed violation — Overtime Parking — was also the most frequently appealed, followed by Permit Zone w/o Permit.
+
+
+What are the least granted violation?
+
+```{r}
+arrange(granted, grant_ratio)
+
+```
+
+What are the most granted violation?
+
+```{r message=FALSE, warning=FALSE}
+
+arrange(granted, desc(grant_ratio))
+
+```
+
+
+However, when we look at grant rates, the violations with the highest proportions of granted appeals were No Parking 3–5am Downtown, Warning, Permit Zone w/o Permit, and Violation of Meter Ordinance.
+
+However, No Parking 3–5am Downtown and Warning have very small numbers of total appeals, so even a few granted cases can make their grant rate appear high.
+
+
+###### - Bar Chart of Total Appeals
+```{r message=FALSE, warning=FALSE}
+
+granted |>
+  ggplot(aes(x = fct_reorder(Violation, appeal_total),
+             y = appeal_total)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Total Appeals by Violation Type",
+       x = "Violation Type", y = "Total Appeals")
+
+```
+
+###### - Bar Chart of Grant Rate
+```{r message=FALSE, warning=FALSE}
+
+granted |> 
+  filter(appeal_total > 20) |>
+  ggplot(aes(x = fct_reorder(Violation, grant_ratio),
+             y = grant_ratio)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Grant Rate by Violation Type (Appeals > 20)",
+       x = "Violation Type", y = "Grant Rate")
+
+```
+
+###### - Appeals vs Grant Rate 
+
+```{r message=FALSE, warning=FALSE}
+
+
+granted |> 
+  ggplot(aes(x = appeal_total, y = grant_ratio, label = Violation)) +
+  geom_point() +
+  geom_text_repel(size = 3) + # pushes labels apart so they don't overlap
+  geom_hline(yintercept = 0.5, linetype = 1, color = "red") +
+  labs(title = "Appeal Volume vs Grant Rate",
+       x = "Total Appeals", y = "Grant Rate")
+
+```
+
+
+This plot shows how many appeals each violation type received (x-axis) and the proportion that were granted (y-axis). High-volume appeals are dominated by Overtime Parking and Permit Zone w/o Permit, while some small categories like Warning and No Parking 3–5am Downtown show very high grant rates due to their small appeal counts. The red horizontal line indicates a 50% grant rate.
+ 
+ 
+
+
+## 7. Summary of Analysis
+
+In this project, we performed a comprehensive Exploratory Data Analysis (EDA) of Charlottesville parking ticket data. The analyses are:
+
+1. Data Cleaning & Preparation
+- Loaded and inspected the raw dataset.
+- Verified structure and corrected class types.
+- Cleaned the TimeIssued variable by standardizing inconsistent formats (H:MM, HH:MM, HMM, HHMM, and 1–2 digit times) and converting them into a proper time object.
+- Handled missing values by converting empty strings ("") and "n/a" entries into proper NAs.
+- Identified and corrected errors in DateIssued by examining the year values and removing unrealistic dates (e.g., Year = 5201).
+
+2. Patterns by Time
+
+* By Year
+  -	Parking tickets peaked in 1999–2001, then dropped sharply.
+  -	After 2010, the total number of tickets gradually decreased.
+
+* By Month
+  -	Not much of seasonal patterns observed, but fewer ticket issues in the winter (December and January)
+
+* By Day of Week
+  -	Tuesday, Wednesday, and Thursday were the most ticket-heavy days. Saturday was not zero, watch out!
+
+* By Time of Day
+  - Strong peak between 9 AM and 4 PM, with the highest activity around 11:00 AM, which is consistent with business hours. Very few tickets are issued overnight (still not zero!).
+ 
+
+3. Violation Types
+
+* The most common violations were:
+  -	Overtime Parking
+  -	No Parking Any Time
+  -	Permit Zone Without Permit
+  -	Violation of Meter Ordinance
+
+* Faceted plots revealed policy and enforcement changes, such as:
+  -	No City License disappearing after 2006 (matching the decal policy change).
+  -	Void tickets increasing sharply after 2015 (likely due to digital ticketing or easier cancellation).
+  -	Warnings have steadily decreased.
+
+ 
+
+4. License Plate States
+-	Besides Virginia, the most commonly ticketed out-of-state plates were:
+MD, NC, FL, PA, NY, NJ, consistent with regional and tourist traffic patterns.
+
+ 
+
+5. Appeals & Grant Rates
+
+* Appeal Volume
+  -	Naturally, the most frequently ticketed violations (e.g., Overtime Parking) produced the most appeals.
+
+* Grant Rates
+  +	Grant rate varied by violation type.
+  +	Some small categories showed very high grant rates:
+	 -	No Parking 3–5 AM Downtown
+	 -	Warning
+*	More common violations with meaningful grant rates included:
+	 + Permit Zone without Permit
+	 + Violation of Meter Ordinance
+
+* Appeal vs. Grant Rate Visualization
+  +	The “Appeal Volume vs Grant Rate” scatter plot separated:
+	 - High-volume but moderate-grant categories
+	 - Low-volume but high-grant categories 
+
+
+## 8. Conclusion
+
+The EDA revealed some patterns in Charlottesville parking ticketing:
+
+
+- Ticket volume has declined over the last two decades.
+- Policy changes (e.g., removal of city decals, digital ticketing) leave visible pattern in the data.
+- Appeal behaviors vary by violation type, with some violations more likely to be overturned.
+- Visitors from nearby states (MD, NC, PA, etc.) contribute ticket counts.
+
+	
+
+
+# ___Further Analysis____
+
+ 
+# 1. AppealDate and AppealGrantedDate
+How long does the appeal process take to be granted
+```{r}
+ 
+# create grant dataset including 'Appealdate', 'AppealGrantedDate', 'days to grant' and 'year' from the AppealDate
+grant <- ticket |>
+  filter(!is.na(AppealDate), !is.na(AppealGrantedDate)) |> # remove NA 
+  filter(AppealDate <= Sys.Date()  & AppealGrantedDate <= Sys.Date()) |> # Select only dates earlier than the current date.
+  mutate(
+    days_to_grant = as.numeric(difftime(AppealGrantedDate, AppealDate, units = "days")),
+    appeal_year   = year(AppealDate)) |>
+  filter(days_to_grant >=0)           # keep non-negative  
+
+
+#dim(grant)   
+
+
+
+```
+
+## Summary Days to Grant
+```{r}
+summary(grant$days_to_grant)
+```
+
+
+## Quantile 
+```{r}
+quantile(grant$days_to_grant, probs = c(0.95, 0.99, 1))
+
+```
+95% of all appeals are resolved within 13 days. 99% within 72 days
+ 
+## Inspect Extreme Cases
+```{r}
+grant |>
+  arrange(desc(days_to_grant)) |>
+  select(AppealDate, AppealGrantedDate, days_to_grant) |>
+  head(30) 
+
+
+# The cases that took more than 1 year
+sum(grant$days_to_grant >= 365, na.rm = TRUE)  #202 cases
+```
+
+202 cases took more than one year for their appeals to be granted.
+
+
+## Dotplot of Days to Grant by Year
+```{r}
+
+
+# Dot plot 
+ggplot(grant, aes(factor(appeal_year), days_to_grant)) +
+  geom_point( alpha = 0.2)   +  
+  labs(x = "Appeal year", y = "Days to grant", title = "Days to Grant by Year")+
+  stat_summary(fun = median, geom = "point", color = "lightblue") +  # the blue points identify median
+ theme(
+  axis.text.x = element_text(angle = 45, hjust = 1)
+)
+
+
+```
+
+We see that the number of extreme cases has significantly decreased over the years.The light blue dots represent the median.
+
+## Distribution (focused on main range : less than 100 Days)
+
+Since 99% of appeals were granted within 72 days, it makes sense to examine the distribution by restricting the range to cases resolved within 100 days.
+
+```{r}
+# Distribution(focused on main range : less than 100 Days)
+grant |> filter(days_to_grant <=100) |> 
+ ggplot( aes(days_to_grant)) +
+  geom_histogram(binwidth = 7, color ="white") +  
+  labs(x = "Days to grant", y = "Count")+
+  theme_minimal() 
+
+```
+
+
+## Median Days to Grant by Year
+
+In cases like this, when the data range is extremely skewed, the median is a great summary statistic because it is not affected by extreme values.
+
+```{r}
+# Median by year
+median_by_year = grant |>
+  group_by(appeal_year)|>
+  summarize(median_days = median(days_to_grant)) |>
+  arrange(appeal_year) 
+
+median_by_year 
+
+```
+
+## Median Line with Smoothed Trend Curve
+
+We next visualize the yearly trend in days to grant, including both the median and a smoothed curve.
+
+```{r}
+# Median with smoother
+ggplot(grant, aes(appeal_year, days_to_grant)) +
+  stat_summary(fun = median, geom = "point") +
+  stat_summary(fun = median, geom = "line") +
+  geom_smooth(method = "loess", se = FALSE) +
+  scale_x_continuous(
+    breaks = seq(1999, 2025, by = 2)
+  ) +
+  labs(x = "Appeal year", y = "Median days to grant") +
+  theme_minimal()
+
+```
+
+The smooth line lies above the median line because it is fit to the raw data, which are highly right-skewed. Median appeal times remain below about 7.5 days across all years, indicating that most appeals are processed quickly. Although the median increases modestly after 2017, this rise is small, and overall service quality appears to have improved because the number of extremely long delay cases has declined.
+
+
+# 2. Street Names and Weekdays
+
+Which streets are ticketed most frequently on weekdays?
+
+
+## Cleaning and Standardizing Street Names
+
+In real world datasets, it is rare to receive clean, well-prepared data that is ready for analysis. The Street Name variable is no exception! Let’s standardize the names and combine duplicated cases as cleanly as possible.
+```{r}
+
+# 1. Basic Cleaning 
+ticket <- ticket |>
+  mutate(
+    StreetName_clean = str_to_upper(StreetName),     # make uppercase
+    StreetName_clean = str_trim(StreetName_clean),   # remove leading/trailing spaces
+    StreetName_clean = str_squish(StreetName_clean)  # fix extra internal spaces
+  )
+
+ 
+
+#2. Remove punctuation 
+ticket <- ticket |>
+  mutate(
+    StreetName_clean = str_replace_all(StreetName_clean, "[[:punct:]]", "")
+  )
+
+
+ticket <- ticket |>
+  mutate(
+    StreetName_clean = str_replace_all(StreetName_clean, 
+                                       c( "\\bSTREET\\b"="ST",
+                                         " ST$"=" ST",
+                                         " AV$"=" AVE",
+                                         " ROAD$"=" RD",
+                                         " RD$"=" RD",
+                                         " BOULEVARD$"=" BLVD",
+                                         " BLVD$"=" BLVD",
+                                         " LANE$"=" LN",
+                                         " LN$"=" LN"))
+  )
+ 
+
+  # Standardize directional suffix to prefix
+ticket <- ticket |> 
+  mutate(
+    StreetName_clean = case_when(
+      str_detect(StreetName_clean, " ST E$") ~ 
+        paste0("E ", str_remove(StreetName_clean, " ST E$"), " ST"),
+
+      str_detect(StreetName_clean, " ST W$") ~ 
+        paste0("W ", str_remove(StreetName_clean, " ST W$"), " ST"),
+
+      str_detect(StreetName_clean, " ST N$") ~ 
+        paste0("N ", str_remove(StreetName_clean, " ST N$"), " ST"),
+
+      str_detect(StreetName_clean, " ST S$") ~ 
+        paste0("S ", str_remove(StreetName_clean, " ST S$"), " ST"),
+
+      TRUE ~ StreetName_clean
+    )
+  )
+
+unique_streets <- unique(ticket$StreetName_clean) 
+length(unique_streets) #11186
+```
+
+
+##  Top10 Streets
+```{r}
+# count total ticket per street
+top_streets <- ticket |> 
+  count(StreetName_clean, sort = TRUE) |>
+  slice_head(n=10)
+
+top_streets
+
+```
+
+Water Street Lot was the most frequently ticketed location. The next most frequently ticketed streets were E Jefferson St and University Ave. Let's visualize the results with a heatmap.
+
+
+# Heatmap
+```{r}
+ticket |>
+  filter(StreetName_clean %in% top_streets$StreetName_clean) |>
+  group_by(StreetName_clean, Weekday) |>
+  summarize(n = n(), .groups = "drop") |>
+  ggplot(aes(Weekday, StreetName_clean, fill = n)) +
+  geom_tile(color = "white") +
+  scale_fill_viridis_c(option = "magma") +
+  labs(
+    title = "Top 10 Streets: Parking Ticket Hotspots by Weekday",
+    x = "Weekday",
+    y = "Street Name",
+    fill = "Count"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 8),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+ticket |>
+  filter(StreetName_clean == "BRANDON AVE") |>
+  count(Weekday)
+
+```
+
+ 
+The heatmap shows the results clearly. Water Street Lot appears very bright on Tuesday through Friday, indicating a high volume of tickets on those days. (Brighter colors correspond to higher counts.) University Ave and E Jefferson St are the next most frequently ticketed locations.
+
+
+
+# Ackewagement 
+
+I used ChatGPT for copy editing (grammar and clarity), R code suggestions for data cleaning, and help with graphs; all outputs were reviewed, tested and revised by the author
+
