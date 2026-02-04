@@ -657,16 +657,21 @@ granted |>
 ###### - Bar Chart of Grant Rate
 ```{r message=FALSE, warning=FALSE}
 
+# Violation types with a high grant rate among those with more than 200 appeals
+
 granted |> 
-  filter(appeal_total > 20) |>
+  filter(appeal_total > 200) |>
   ggplot(aes(x = fct_reorder(Violation, grant_ratio),
              y = grant_ratio)) +
   geom_col() +
   coord_flip() +
-  labs(title = "Grant Rate by Violation Type (Appeals > 20)",
+  labs(title = "Grant Rate by Violation Type (Appeals > 200)",
        x = "Violation Type", y = "Grant Rate")
 
 ```
+ 
+Permit Zone Without Permit and Violation of Meter Ordinance are the violations most commonly granted. If I’m in a real hurry, I’d probably choose parking in a permit zone without a permit rather than blocking someone or taking up an adjoining space! What about you? :) 
+
 
 ###### - Appeals vs Grant Rate 
 
@@ -688,23 +693,22 @@ This plot shows how many appeals each violation type received (x-axis) and the p
  
  
 
-
 ## 7. Summary of Analysis
 
 In this project, we performed a comprehensive Exploratory Data Analysis (EDA) of Charlottesville parking ticket data. The analyses are:
 
 1. Data Cleaning & Preparation
 - Loaded and inspected the raw dataset.
-- Verified structure and corrected class types.
-- Cleaned the TimeIssued variable by standardizing inconsistent formats (H:MM, HH:MM, HMM, HHMM, and 1–2 digit times) and converting them into a proper time object.
 - Handled missing values by converting empty strings ("") and "n/a" entries into proper NAs.
+- Verified structure and corrected class types.
 - Identified and corrected errors in DateIssued by examining the year values and removing unrealistic dates (e.g., Year = 5201).
+- Cleaned the TimeIssued variable by standardizing inconsistent formats (H:MM, HH:MM, HMM, HHMM, and 1–2 digit times) and converting them into a proper time object.
 
 2. Patterns by Time
 
 * By Year
-  -	Parking tickets peaked in 1999–2001, then dropped sharply.
-  -	After 2010, the total number of tickets gradually decreased.
+  -	Parking tickets peaked in 2000–2001, then dropped sharply.
+  -	After 2001, the total number of tickets gradually decreased.
 
 * By Month
   -	Not much of seasonal patterns observed, but fewer ticket issues in the winter (December and January)
@@ -729,14 +733,11 @@ In this project, we performed a comprehensive Exploratory Data Analysis (EDA) of
   -	Void tickets increasing sharply after 2015 (likely due to digital ticketing or easier cancellation).
   -	Warnings have steadily decreased.
 
- 
-
 4. License Plate States
 -	Besides Virginia, the most commonly ticketed out-of-state plates were:
 MD, NC, FL, PA, NY, NJ, consistent with regional and tourist traffic patterns.
 
  
-
 5. Appeals & Grant Rates
 
 * Appeal Volume
@@ -788,7 +789,6 @@ grant <- ticket |>
 
 
 #dim(grant)   
-
 
 
 ```
@@ -1001,7 +1001,6 @@ ticket |>
 
  
 The heatmap shows the results clearly. Water Street Lot appears very bright on Tuesday through Friday, indicating a high volume of tickets on those days. (Brighter colors correspond to higher counts.) University Ave and E Jefferson St are the next most frequently ticketed locations.
-
 
 
 # Ackewagement 
