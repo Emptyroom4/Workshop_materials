@@ -1,0 +1,246 @@
+---
+title: "EDA of Steps & BMI"
+author: "Hyeseon Seo, StatLab, University of Virginia Library"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    code_folding: show
+---
+
+Markdown provides a simple syntax for combining text and code, which is essential for reproducible data analysis. To create a code block in R Markdown, we use three backticks followed by {r}, write the code, and then close with three backticks. The keyboard shortcut is Ctrl + Alt + I on Windows and Cmd + Option + I on Mac.
+
+```{r message=FALSE, warning=TRUE}
+
+#install.packages("tidyverse")
+
+library(tidyverse) 
+
+```
+
+
+This dataset includes information on average steps, Body Mass Inedex, and gender for 1,786 individuals.
+
+# Reading Data
+```{r}
+ 
+data = read.csv("steps.csv")[,-1] # [,-1] removes row numbers
+
+
+```
+
+# Structure of the Data
+
+The _str()_ and _summary()_ functions are useful for quickly inspecting the structure of the data and for viewing basic summary statistics such as the mean and median for continuous variables.
+
+```{r}
+
+str(data)
+summary(data)
+
+
+```
+
+We notice that the class of ID is incorrect. Character would be the appropriate type. 
+```{r}
+data$ID <- as.character(data$ID)
+data$gender <- as.factor(data$gender)
+
+str(data)
+
+```
+
+
+# Boxplot for Distribution Check
+
+A boxplot is a good way of visually summarizing a numeric variable, showing its distribution at a glance. The box represents the middle 50% of the data, bounded by the first quartile (Q1) and the third quartile (Q3). The line inside the box marks the median, the typical central value. The whiskers extend to the most extreme values within 1.5×IQR of the quartiles, capturing most non-extreme observations. Points beyond the whiskers are plotted individually as potential outliers.
+
+
+## BMI
+```{r}
+
+ggplot(data, aes(gender, bmi)) + 
+  geom_boxplot() +
+  labs(title = "Boxplot of BMI by Gender")
+
+```
+ 
+ 
+The boxplot shows that males have a slightly higher median BMI, while females are slightly greater variability. However overall distributions looks quite similar. No outliers are observed.
+
+You may notice that for both males and females, the lower half of the box (from Q1 to the median) is larger than the upper half (median to Q3). This tells us that the BMI values below the median are more spread out, while the BMI values above the median are more closely clustered.
+
+ 
+## Steps
+```{r}
+
+ggplot(data, aes(gender, steps)) + 
+  geom_boxplot() +
+  labs(title = "Boxplot of Steps by Gender")
+  
+
+```
+ 
+Based on the medians, females walked slightly more steps, but the difference is small. The variances are similar, and the IQRs (boxes) mostly overlap, indicating very little difference between the groups.
+ 
+ 
+# Correlation between Steps and BMI
+```{r}
+cor(data$steps, data$bmi)
+
+```
+
+We computed Pearson’s correlation between steps and BMI. The correlation is negative, which looks natural, but the effect size is not large. which looks natural, but the size is not big
+
+# Gender Differences in the Steps–BMI Relationship
+
+Is the correlation between steps and BMI different for males and females?
+```{r}
+
+male <- data |> filter(gender == "male")
+female <- data |> filter(gender =="female")
+
+
+cor(male$steps, male$bmi) #  -0.3123607
+cor(female$steps, female$bmi)  # -0.2303534
+
+```
+
+Both correlations are negative and not very different.
+
+
+Let’s explore this more: Do steps predict BMI?
+
+# Regression (without hypothesis)
+```{r}
+bmi <- lm( bmi ~ steps + gender, data)
+
+summary(bmi)
+
+```
+Steps significantly predict BMI (p < .001).
+One additional step is associated with a decrease of about 0.000392 BMI units.
+
+1 step --> 0.000392 BMI. To change BMI by 1 full unit, you would need:
+
+1 / 0.000392 = 2,551 steps!
+ 
+
+Statistics says the relationship is significant… but is it really linear? Let’s visualize it
+ 
+# Scatter Plot: Steps vs. BMI
+
+```{r}
+ 
+ggplot(data, aes(steps, bmi, color = gender)) +
+  geom_point(size = 1.5) 
+
+```
+ 
+ 
+Was this surprising?
+Our model gave us a significant result…  yet we missed the gorilla hiding in the data!
+This is why visualization must come first! 
+ 
+ 
+The Steps and BMI dataset comes from the 2020 article “A Hypothesis Is a Liability”  
+ in which the authors created an artificial dataset to demonstrate how prior beliefs shape our attention. One group was given three specific hypotheses(e.g, There is a difference in the mean number of steps between women and men.) to test, while the other group was simply asked to explore the data freely. The hypothesis-free group was 2.6 times more likely to notice the hidden gorilla in the dataset than the group that was given hypotheses.
+ 
+Another example that shows the importance of visualization is Anscombe’s quartet.
+
+# Anscombe’s Quartet 
+
+You can find the Anscombe data in base R. Here are the four datasets: x1–y1 is a pair, as are x2–y2, x3–y3, and x4–y4.
+The summary statistics — the mean, variance, correlation, slope, and intercept — for these paired datasets are all the same, yet the underlying data structure is dramatically different.
+ 
+```{r}
+anscombe
+```
+
+Let’s examine summary statistics.
+
+## Summary Statistics
+ 
+```{r echo=FALSE}
+ 
+# Function to compute summary stats
+get_stats <- function(x, y) {
+  data.frame(
+    mean_x = mean(x),
+    mean_y = mean(y),
+    var_x  = var(x),
+    var_y  = var(y),
+    cor_xy = cor(x, y),
+    slope  = coef(lm(y ~ x))[2],
+    intercept = coef(lm(y ~ x))[1]
+  )
+}
+
+# Compute stats for all four sets
+stats1 <- get_stats(anscombe$x1, anscombe$y1) # x1 and y1 are paired variables (dataset A)
+stats2 <- get_stats(anscombe$x2, anscombe$y2)
+stats3 <- get_stats(anscombe$x3, anscombe$y3)
+stats4 <- get_stats(anscombe$x4, anscombe$y4)
+
+# Combine into one table
+anscombe_stats <- rbind(
+  A  = stats1,
+  B = stats2,
+  C = stats3,
+  D = stats4
+)
+
+anscombe_stats
+```
+
+Their summary statistics are identical (or nearly so), but what does the underlying structure look like?
+
+## Visualization
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+# Convert anscombe data to long format
+df_long <- anscombe |>
+  pivot_longer(
+    cols = everything(), # apply pivoting to all columns of anscombe
+    names_to = c(".value", "set"), # use part of the column name as a new column name(x or y). set will contain the second part of the column name(1,2,3,4)
+    names_pattern = "(.)(.)" #splits each column name into two groups-> x or y, 1,2,3 or 4
+  ) |>
+  mutate(set = factor(set, 
+                      labels = c("Set A", "Set B", "Set C", "Set D"))) # replace name 1 -> setA,...
+
+# Plot
+ggplot(df_long, aes(x, y)) +
+  geom_point(size = 2, color = "steelblue") +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  facet_wrap(~ set, ncol = 2) +
+  labs(
+    title = "Anscombe’s Quartet",
+    subtitle = " Four datasets with identical summary statistics but very different structures",
+    x = "x",
+    y = "y"
+  ) +
+  theme_minimal(base_size = 14)
+
+
+
+```
+
+
+
+The plots reveal that the four datasets are all different!
+
+- Dataset A: A typical linear relationship
+- Dataset B: A curved (nonlinear) pattern
+- Dataset C: A linear pattern but with an extreme outlier
+- Dataset D: All points are identical except one outlier that drives the entire correlation
+
+ 
+You cannot trust summary statistics alone. You must visualize the data. EDA is essential!
+
+# Referenece ______________
+
+Yanai, I., & Lercher, M. J. (2020). A hypothesis is a liability. Genome Biology, 21, 231. https://doi.org/10.1186/s13059-020-02133-w
+The gorilla data: https://www.biorxiv.org/content/10.1101/2020.07.30.228916v1
+
+Anscombe, Francis J. (1973). Graphs in statistical analysis. The American Statistician, 27, 17–21. doi:10.2307/2682899. 
+
+
